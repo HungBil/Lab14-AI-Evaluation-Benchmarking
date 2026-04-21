@@ -79,14 +79,14 @@ def _build_summary_report(v1_summary, v2_summary, delta):
     return {
         "metadata": {
             "total": v2_summary["metadata"]["total"],
-            "version": "BASELINE (V1)",
+            "version": v2_summary["metadata"]["version"],
             "timestamp": v2_summary["metadata"]["timestamp"],
             "versions_compared": ["V1", "V2"],
         },
         "metrics": {
-            "avg_score": v1_metrics["avg_score"],
-            "hit_rate": v1_metrics["hit_rate"],
-            "agreement_rate": v1_metrics["agreement_rate"],
+            "avg_score": v2_metrics["avg_score"],
+            "hit_rate": v2_metrics["hit_rate"],
+            "agreement_rate": v2_metrics["agreement_rate"],
         },
         "regression": {
             "v1": {
