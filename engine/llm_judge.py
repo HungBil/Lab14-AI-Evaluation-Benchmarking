@@ -1,6 +1,7 @@
 import asyncio
 import json
 from typing import Dict, Any, List
+import re
 
 
 class LLMJudge:
@@ -10,6 +11,33 @@ class LLMJudge:
             "accuracy": "Chấm điểm từ 1-5 dựa trên độ chính xác so với Ground Truth...",
             "tone": "Chấm điểm từ 1-5 dựa trên sự chuyên nghiệp của ngôn ngữ..."
         }
+
+    def _safe_parse_json(self, text: str) -> Dict[str, Any]:
+        """
+        Parse JSON robustly ngay cả khi model trả thêm text/thừa dữ liệu.
+        """
+        raw = (text or "").strip()
+        if not raw:
+            raise ValueError("Judge output rỗng")
+
+        # Bỏ markdown fences nếu có.
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw).strip()
+
+        # Ưu tiên parse full string.
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+
+        # Parse object JSON đầu tiên trong chuỗi (xử lý lỗi Extra data).
+        start = raw.find("{")
+        if start == -1:
+            raise ValueError("Không tìm thấy JSON object trong output của Judge")
+
+        decoder = json.JSONDecoder()
+        obj, _ = decoder.raw_decode(raw[start:])
+        return obj
 
     def _build_judge_prompt(self, question: str, answer: str, ground_truth: str) -> str:
         """Tạo prompt chung cho cả 2 judge model."""
@@ -38,7 +66,7 @@ class LLMJudge:
             response_format={"type": "json_object"},
             temperature=0
         )
-        return json.loads(resp.choices[0].message.content)
+        return self._safe_parse_json(resp.choices[0].message.content)   
 
     async def _call_gpt4o_mini(self, prompt: str) -> Dict:
         """Gọi OpenAI GPT-4o-mini làm Judge B."""
