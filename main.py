@@ -10,6 +10,33 @@ from agent.main_agent import MainAgent
 
 load_dotenv()  # Đọc OPENAI_API_KEY và GEMINI_API_KEY từ file .env
 
+
+class ExpertEvaluator:
+    """
+    Giữ tên class gốc trong main.py để không làm lệch khung bài.
+    Logic thật nằm ở engine/retrieval_eval.py.
+    """
+    def __init__(self):
+        self._retrieval_evaluator = RetrievalEvaluator()
+
+    async def score(self, case, resp):
+        return await self._retrieval_evaluator.score(case, resp)
+
+
+class MultiModelJudge:
+    """
+    Giữ tên class gốc trong main.py để tương thích với khung cũ.
+    Logic multi-judge thật nằm ở engine/llm_judge.py.
+    """
+    def __init__(self):
+        self._judge = LLMJudge()
+
+    async def evaluate_multi_judge(self, q, a, gt):
+        return await self._judge.evaluate_multi_judge(q, a, gt)
+
+    def calculate_cohens_kappa(self, scores_a, scores_b):
+        return self._judge.calculate_cohens_kappa(scores_a, scores_b)
+
 async def run_benchmark_with_results(agent_version: str):
     print(f"🚀 Khởi động Benchmark cho {agent_version}...")
 
@@ -24,11 +51,11 @@ async def run_benchmark_with_results(agent_version: str):
         print("❌ File data/golden_set.jsonl rỗng. Hãy tạo ít nhất 1 test case.")
         return None, None
 
-    runner = BenchmarkRunner(MainAgent(), RetrievalEvaluator(), LLMJudge())
+    runner = BenchmarkRunner(MainAgent(), ExpertEvaluator(), MultiModelJudge())
     results = await runner.run_all(dataset)
 
     total = len(results)
-    judge_instance = LLMJudge()
+    judge_instance = MultiModelJudge()
 
     # Thu thập điểm riêng từng judge để tính Cohen's Kappa trên toàn batch
     scores_gpt = [
