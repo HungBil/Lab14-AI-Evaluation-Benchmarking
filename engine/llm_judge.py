@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 from typing import Dict, Any, List
 
 
@@ -41,24 +40,22 @@ class LLMJudge:
         )
         return json.loads(resp.choices[0].message.content)
 
-    async def _call_gemini(self, prompt: str) -> Dict:
-        """Gọi Google Gemini 2.5 Flash làm Judge B."""
-        from google import genai
-        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    async def _call_gpt4o_mini(self, prompt: str) -> Dict:
+        """Gọi OpenAI GPT-4o-mini làm Judge B."""
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI()
 
-        resp = await client.aio.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=genai.types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0
-            )
+        resp = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0
         )
-        return json.loads(resp.text)
+        return json.loads(resp.choices[0].message.content)
 
     async def evaluate_multi_judge(self, question: str, answer: str, ground_truth: str) -> Dict[str, Any]:
         """
-        EXPERT TASK: Gọi 2 model judge (GPT-4o + Gemini 2.5 Flash) song song.
+        EXPERT TASK: Gọi 2 model judge (GPT-4o + GPT-4o-mini) song song.
         Tính toán sự sai lệch. Nếu lệch > 1 điểm, áp dụng conflict resolution.
         """
         prompt = self._build_judge_prompt(question, answer, ground_truth)
@@ -70,14 +67,14 @@ class LLMJudge:
         reasoning_b = ""
 
         try:
-            gpt_result, gemini_result = await asyncio.gather(
+            gpt_result, mini_result = await asyncio.gather(
                 self._call_gpt4o(prompt),
-                self._call_gemini(prompt)
+                self._call_gpt4o_mini(prompt)
             )
             score_a = int(gpt_result.get("score", 3))
-            score_b = int(gemini_result.get("score", 3))
+            score_b = int(mini_result.get("score", 3))
             reasoning_a = gpt_result.get("reasoning", "")
-            reasoning_b = gemini_result.get("reasoning", "")
+            reasoning_b = mini_result.get("reasoning", "")
         except Exception as e:
             print(f"⚠️ Lỗi khi gọi Judge: {e}. Dùng điểm fallback = 3.")
 
@@ -103,8 +100,8 @@ class LLMJudge:
         return {
             "final_score": final_score,
             "agreement_rate": agreement,
-            "individual_scores": {"gpt-4o": score_a, "gemini-2.5-flash": score_b},
-            "individual_reasoning": {"gpt-4o": reasoning_a, "gemini-2.5-flash": reasoning_b},
+            "individual_scores": {"gpt-4o": score_a, "gpt-4o-mini": score_b},
+            "individual_reasoning": {"gpt-4o": reasoning_a, "gpt-4o-mini": reasoning_b},
             "conflict": diff > 1
         }
 

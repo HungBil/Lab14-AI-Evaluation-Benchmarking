@@ -38,6 +38,24 @@ Nhóm nộp 1 đường dẫn Repository (GitHub/GitLab) chứa:
 
 ---
 
+## ✅ Những gì repo này đã triển khai
+- **Retrieval evaluation thật**: tính `Hit Rate` và `MRR` từ `expected_retrieval_ids` so với `metadata.sources`.
+- **Golden dataset 59 cases**: bao phủ `normal`, `adversarial`, `edge_case`, `multi_turn`, và một phần `technical_constraint`.
+- **2 phiên bản agent để benchmark**:
+  - `v1_random`: baseline retrieval cố tình yếu.
+  - `v2_hybrid`: hybrid retrieval theo dense/sparse + RRF.
+- **Multi-Judge chạy thật**: dùng 2 judge model để chấm song song, đo `agreement_rate` và xử lý conflict.
+- **Regression gate**: so sánh `V1` và `V2`, tự động đưa ra quyết định `APPROVE` hoặc `BLOCK`.
+- **Reports đầu ra**:
+  - `reports/summary.json`
+  - `reports/benchmark_results.json`
+  - `reports/dashboard.html`
+
+### Bonus đã làm
+- **Cohen's Kappa**: đo độ đồng thuận giữa 2 judge sau khi loại trừ phần đồng thuận ngẫu nhiên.
+
+---
+
 ## 🏆 Bí kíp đạt điểm tuyệt đối (Expert Tips)
 
 ### ✅ Đánh giá Retrieval (15%)
