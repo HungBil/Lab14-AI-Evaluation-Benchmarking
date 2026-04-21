@@ -62,7 +62,7 @@ async def run_benchmark_with_results(agent_version: str, agent):
         if "individual_scores" in r.get("judge", {})
     ]
     scores_gemini = [
-        r["judge"]["individual_scores"].get("gemini-2.5-flash", 3)
+        r["judge"]["individual_scores"].get("gemini-2.5-flash-lite", 3)
         for r in results
         if "individual_scores" in r.get("judge", {})
     ]
