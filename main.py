@@ -1,29 +1,73 @@
 import asyncio
 import json
 import os
+import re
 import time
 from engine.runner import BenchmarkRunner
 from agent.main_agent import MainAgent
+from engine.retrieval_eval import RetrievalEvaluator
 
-# Giả lập các components Expert
+
+def _tokenize(text: str):
+    return set(re.findall(r"\w+", (text or "").lower()))
+
+
 class ExpertEvaluator:
-    async def score(self, case, resp): 
-        # Giả lập tính toán Hit Rate và MRR
+    def __init__(self):
+        self.retrieval_evaluator = RetrievalEvaluator()
+
+    async def score(self, case, resp):
+        answer_tokens = _tokenize(resp.get("answer", ""))
+        expected_tokens = _tokenize(case.get("expected_answer", ""))
+        query_tokens = _tokenize(case.get("question", ""))
+
+        faithfulness = len(answer_tokens.intersection(expected_tokens)) / max(1, len(expected_tokens))
+        relevancy = len(answer_tokens.intersection(query_tokens)) / max(1, len(query_tokens))
+
+        expected_ids = case.get("expected_retrieval_ids", [])
+        retrieved_ids = resp.get("retrieved_ids", [])
+        if expected_ids and retrieved_ids:
+            hit_rate = self.retrieval_evaluator.calculate_hit_rate(expected_ids, retrieved_ids)
+            mrr = self.retrieval_evaluator.calculate_mrr(expected_ids, retrieved_ids)
+        else:
+            # Fallback cho dataset chưa có expected_retrieval_ids.
+            mrr = faithfulness
+            hit_rate = 1.0 if faithfulness >= 0.2 else 0.0
+
         return {
-            "faithfulness": 0.9, 
-            "relevancy": 0.8,
-            "retrieval": {"hit_rate": 1.0, "mrr": 0.5}
+            "faithfulness": min(1.0, max(0.0, faithfulness)),
+            "relevancy": min(1.0, max(0.0, relevancy)),
+            "retrieval": {"hit_rate": hit_rate, "mrr": mrr},
         }
+
 
 class MultiModelJudge:
-    async def evaluate_multi_judge(self, q, a, gt): 
+    async def evaluate_multi_judge(self, q, a, gt):
+        answer_tokens = _tokenize(a)
+        gt_tokens = _tokenize(gt)
+        q_tokens = _tokenize(q)
+
+        overlap_gt = len(answer_tokens.intersection(gt_tokens)) / max(1, len(gt_tokens))
+        overlap_q = len(answer_tokens.intersection(q_tokens)) / max(1, len(q_tokens))
+
+        score_a = max(1.0, min(5.0, 1.0 + 4.0 * overlap_gt))
+        score_b = max(1.0, min(5.0, 1.0 + 2.5 * overlap_gt + 1.5 * overlap_q))
+        avg_score = (score_a + score_b) / 2
+        score_diff = abs(score_a - score_b)
+        agreement = max(0.0, 1.0 - (score_diff / 4.0))
+
         return {
-            "final_score": 4.5, 
-            "agreement_rate": 0.8,
-            "reasoning": "Cả 2 model đồng ý đây là câu trả lời tốt."
+            "final_score": avg_score,
+            "agreement_rate": agreement,
+            "individual_scores": {"judge_a": score_a, "judge_b": score_b},
+            "reasoning": (
+                "Điểm dựa trên mức độ trùng khớp giữa câu trả lời với expected answer "
+                "và mức độ liên quan với câu hỏi."
+            ),
         }
 
-async def run_benchmark_with_results(agent_version: str):
+
+async def run_benchmark_with_results(agent_version: str, agent):
     print(f"🚀 Khởi động Benchmark cho {agent_version}...")
 
     if not os.path.exists("data/golden_set.jsonl"):
@@ -37,7 +81,7 @@ async def run_benchmark_with_results(agent_version: str):
         print("❌ File data/golden_set.jsonl rỗng. Hãy tạo ít nhất 1 test case.")
         return None, None
 
-    runner = BenchmarkRunner(MainAgent(), ExpertEvaluator(), MultiModelJudge())
+    runner = BenchmarkRunner(agent, ExpertEvaluator(), MultiModelJudge())
     results = await runner.run_all(dataset)
 
     total = len(results)
@@ -51,16 +95,15 @@ async def run_benchmark_with_results(agent_version: str):
     }
     return results, summary
 
-async def run_benchmark(version):
-    _, summary = await run_benchmark_with_results(version)
+async def run_benchmark(version, agent):
+    _, summary = await run_benchmark_with_results(version, agent)
     return summary
 
+
 async def main():
-    v1_summary = await run_benchmark("Agent_V1_Base")
-    
-    # Giả lập V2 có cải tiến (để test logic)
-    v2_results, v2_summary = await run_benchmark_with_results("Agent_V2_Optimized")
-    
+    v1_summary = await run_benchmark("Agent_V1_Base", MainAgent(version="v1_random"))
+    v2_results, v2_summary = await run_benchmark_with_results("Agent_V2_Optimized", MainAgent(version="v2_hybrid"))
+
     if not v1_summary or not v2_summary:
         print("❌ Không thể chạy Benchmark. Kiểm tra lại data/golden_set.jsonl.")
         return
@@ -77,7 +120,7 @@ async def main():
     with open("reports/benchmark_results.json", "w", encoding="utf-8") as f:
         json.dump(v2_results, f, ensure_ascii=False, indent=2)
 
-    if delta > 0:
+    if delta > 0 and v2_summary["metrics"]["hit_rate"] >= v1_summary["metrics"]["hit_rate"]:
         print("✅ QUYẾT ĐỊNH: CHẤP NHẬN BẢN CẬP NHẬT (APPROVE)")
     else:
         print("❌ QUYẾT ĐỊNH: TỪ CHỐI (BLOCK RELEASE)")
