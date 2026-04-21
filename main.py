@@ -11,14 +11,10 @@ from engine.retrieval_eval import RetrievalEvaluator
 from engine.runner import BenchmarkRunner
 
 
-load_dotenv()  # Đọc OPENAI_API_KEY và GEMINI_API_KEY từ file .env
+load_dotenv()
 
 
 class ExpertEvaluator:
-    """
-    Giữ tên class gốc trong main.py để không làm lệch khung bài.
-    Logic retrieval metrics nằm ở engine/retrieval_eval.py.
-    """
 
     def __init__(self):
         self._retrieval_evaluator = RetrievalEvaluator()
@@ -28,10 +24,6 @@ class ExpertEvaluator:
 
 
 class MultiModelJudge:
-    """
-    Giữ tên class gốc trong main.py để tương thích với khung cũ.
-    Logic multi-judge thật nằm ở engine/llm_judge.py.
-    """
 
     def __init__(self):
         self._judge = LLMJudge()
