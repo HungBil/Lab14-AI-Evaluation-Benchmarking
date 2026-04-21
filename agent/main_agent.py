@@ -1,9 +1,10 @@
 import asyncio
-import json
 import random
 import re
 from pathlib import Path
 from typing import Dict, List
+
+from data.processing_data.chunking import chunk_document
 
 class MainAgent:
     """
@@ -19,7 +20,7 @@ class MainAgent:
     def __init__(
         self,
         version: str = "v1_random",
-        data_path: str = "data/golden_set.jsonl",
+        data_path: str = "data/docs",
         top_k_search: int = 10,
         top_k_select: int = 3,
     ):
@@ -37,23 +38,21 @@ class MainAgent:
             return []
 
         docs: List[Dict] = []
-        with path.open("r", encoding="utf-8") as f:
-            for idx, line in enumerate(f):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                text = row.get("context") or row.get("expected_answer") or ""
+        chunk_counter = 1
+
+        for file_path in path.glob("*.txt"):
+            text = file_path.read_text(encoding="utf-8")
+            chunks = chunk_document(text, file_path.name)
+
+            for chunk in chunks:
                 docs.append(
                     {
-                        "doc_id": f"case_{idx}",
-                        "text": text,
-                        "metadata": row.get("metadata", {}),
+                        "doc_id": f"doc_{chunk_counter:03d}",
+                        "text": chunk["text"],
+                        "metadata": chunk.get("metadata", {}),
                     }
                 )
+                chunk_counter += 1
         return docs
 
     def _retrieve_v1_random(self, question: str) -> List[Dict]:

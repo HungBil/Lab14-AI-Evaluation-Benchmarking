@@ -35,6 +35,75 @@ class MultiModelJudge:
         return self._judge.calculate_cohens_kappa(scores_a, scores_b)
 
 
+def _format_single_result(result):
+    judge = result.get("judge", {})
+    ragas = result.get("ragas", {})
+    individual_scores = judge.get("individual_scores", {})
+    individual_reasoning = judge.get("individual_reasoning", {})
+    judge_b_key = next((k for k in individual_scores.keys() if k != "gpt-4o"), "gpt-4o-mini")
+
+    return {
+        "test_case": result.get("test_case"),
+        "agent_response": result.get("agent_response"),
+        "latency": result.get("latency"),
+        "ragas": {
+            "hit_rate": ragas.get("retrieval", {}).get("hit_rate", 0.0),
+            "mrr": ragas.get("retrieval", {}).get("mrr", 0.0),
+            "faithfulness": ragas.get("faithfulness", 0.0),
+            "relevancy": ragas.get("relevancy", 0.0),
+        },
+        "judge": {
+            "final_score": judge.get("final_score", 0.0),
+            "agreement_rate": judge.get("agreement_rate", 0.0),
+            "individual_results": {
+                "gpt-4o": {
+                    "score": individual_scores.get("gpt-4o", 0),
+                    "reasoning": individual_reasoning.get("gpt-4o", ""),
+                },
+                judge_b_key: {
+                    "score": individual_scores.get(judge_b_key, 0),
+                    "reasoning": individual_reasoning.get(judge_b_key, ""),
+                },
+            },
+            "status": "conflict" if judge.get("conflict") else "consensus",
+        },
+        "status": result.get("status", "fail"),
+    }
+
+
+def _build_summary_report(v1_summary, v2_summary, delta):
+    v1_metrics = v1_summary["metrics"]
+    v2_metrics = v2_summary["metrics"]
+    decision = "APPROVE" if delta > 0 and v2_metrics["hit_rate"] >= v1_metrics["hit_rate"] else "BLOCK"
+
+    return {
+        "metadata": {
+            "total": v2_summary["metadata"]["total"],
+            "version": v2_summary["metadata"]["version"],
+            "timestamp": v2_summary["metadata"]["timestamp"],
+            "versions_compared": ["V1", "V2"],
+        },
+        "metrics": {
+            "avg_score": v2_metrics["avg_score"],
+            "hit_rate": v2_metrics["hit_rate"],
+            "agreement_rate": v2_metrics["agreement_rate"],
+        },
+        "regression": {
+            "v1": {
+                "score": v1_metrics["avg_score"],
+                "hit_rate": v1_metrics["hit_rate"],
+                "judge_agreement": v1_metrics["agreement_rate"],
+            },
+            "v2": {
+                "score": v2_metrics["avg_score"],
+                "hit_rate": v2_metrics["hit_rate"],
+                "judge_agreement": v2_metrics["agreement_rate"],
+            },
+            "decision": decision,
+        },
+    }
+
+
 async def run_benchmark_with_results(agent_version: str, agent):
     print(f"🚀 Khởi động Benchmark cho {agent_version}...")
 
@@ -61,12 +130,12 @@ async def run_benchmark_with_results(agent_version: str, agent):
         for r in results
         if "individual_scores" in r.get("judge", {})
     ]
-    scores_gemini = [
-        r["judge"]["individual_scores"].get("gemini-2.5-flash-lite", 3)
+    scores_gpt_mini = [
+        r["judge"]["individual_scores"].get("gpt-4o-mini", 3)
         for r in results
         if "individual_scores" in r.get("judge", {})
     ]
-    kappa_result = judge_instance.calculate_cohens_kappa(scores_gpt, scores_gemini)
+    kappa_result = judge_instance.calculate_cohens_kappa(scores_gpt, scores_gpt_mini)
 
     print(f"\n🔬 Cohen's Kappa: {kappa_result['kappa']} — {kappa_result['interpretation']}")
 
@@ -92,12 +161,14 @@ async def run_benchmark(version, agent):
 
 
 async def main():
-    v1_summary = await run_benchmark("Agent_V1_Base", MainAgent(version="v1_random"))
+    v1_results, v1_summary = await run_benchmark_with_results(
+        "Agent_V1_Base", MainAgent(version="v1_random")
+    )
     v2_results, v2_summary = await run_benchmark_with_results(
         "Agent_V2_Optimized", MainAgent(version="v2_hybrid")
     )
 
-    if not v1_summary or not v2_summary:
+    if not v1_results or not v1_summary or not v2_results or not v2_summary:
         print("❌ Không thể chạy Benchmark. Kiểm tra lại data/golden_set.jsonl.")
         return
 
@@ -107,11 +178,17 @@ async def main():
     print(f"V2 Score: {v2_summary['metrics']['avg_score']}")
     print(f"Delta: {'+' if delta >= 0 else ''}{delta:.2f}")
 
+    summary_report = _build_summary_report(v1_summary, v2_summary, delta)
+    benchmark_report = {
+        "v1": [_format_single_result(r) for r in v1_results],
+        "v2": [_format_single_result(r) for r in v2_results],
+    }
+
     os.makedirs("reports", exist_ok=True)
     with open("reports/summary.json", "w", encoding="utf-8") as f:
-        json.dump(v2_summary, f, ensure_ascii=False, indent=2)
+        json.dump(summary_report, f, ensure_ascii=False, indent=2)
     with open("reports/benchmark_results.json", "w", encoding="utf-8") as f:
-        json.dump(v2_results, f, ensure_ascii=False, indent=2)
+        json.dump(benchmark_report, f, ensure_ascii=False, indent=2)
 
     if delta > 0 and v2_summary["metrics"]["hit_rate"] >= v1_summary["metrics"]["hit_rate"]:
         print("✅ QUYẾT ĐỊNH: CHẤP NHẬN BẢN CẬP NHẬT (APPROVE)")

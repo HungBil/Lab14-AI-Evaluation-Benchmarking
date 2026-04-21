@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "total": 59,
+    "version": "Agent_V2_Optimized",
+    "timestamp": "2026-04-21 17:51:00",
+    "versions_compared": [
+      "V1",
+      "V2"
+    ]
+  },
+  "metrics": {
+    "avg_score": 1.8644067796610169,
+    "hit_rate": 0.5084745762711864,
+    "agreement_rate": 0.8305084745762712
+  },
+  "regression": {
+    "v1": {
+      "score": 1.228813559322034,
+      "hit_rate": 0.0,
+      "judge_agreement": 0.9067796610169492
+    },
+    "v2": {
+      "score": 1.8644067796610169,
+      "hit_rate": 0.5084745762711864,
+      "judge_agreement": 0.8305084745762712
+    },
+    "decision": "APPROVE"
+  }
+}
