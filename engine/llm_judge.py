@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 from typing import Dict, Any, List
+import re
 
 
 class LLMJudge:
@@ -11,6 +12,33 @@ class LLMJudge:
             "accuracy": "Chấm điểm từ 1-5 dựa trên độ chính xác so với Ground Truth...",
             "tone": "Chấm điểm từ 1-5 dựa trên sự chuyên nghiệp của ngôn ngữ..."
         }
+
+    def _safe_parse_json(self, text: str) -> Dict[str, Any]:
+        """
+        Parse JSON robustly ngay cả khi model trả thêm text/thừa dữ liệu.
+        """
+        raw = (text or "").strip()
+        if not raw:
+            raise ValueError("Judge output rỗng")
+
+        # Bỏ markdown fences nếu có.
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw).strip()
+
+        # Ưu tiên parse full string.
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+
+        # Parse object JSON đầu tiên trong chuỗi (xử lý lỗi Extra data).
+        start = raw.find("{")
+        if start == -1:
+            raise ValueError("Không tìm thấy JSON object trong output của Judge")
+
+        decoder = json.JSONDecoder()
+        obj, _ = decoder.raw_decode(raw[start:])
+        return obj
 
     def _build_judge_prompt(self, question: str, answer: str, ground_truth: str) -> str:
         """Tạo prompt chung cho cả 2 judge model."""
@@ -39,7 +67,7 @@ class LLMJudge:
             response_format={"type": "json_object"},
             temperature=0
         )
-        return json.loads(resp.choices[0].message.content)
+        return self._safe_parse_json(resp.choices[0].message.content)   
 
     async def _call_gemini(self, prompt: str) -> Dict:
         """Gọi Google Gemini 2.5 Flash làm Judge B."""
@@ -47,14 +75,14 @@ class LLMJudge:
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
         resp = await client.aio.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-flash-lite",
             contents=prompt,
             config=genai.types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0
             )
         )
-        return json.loads(resp.text)
+        return self._safe_parse_json(resp.text) 
 
     async def evaluate_multi_judge(self, question: str, answer: str, ground_truth: str) -> Dict[str, Any]:
         """
@@ -103,8 +131,8 @@ class LLMJudge:
         return {
             "final_score": final_score,
             "agreement_rate": agreement,
-            "individual_scores": {"gpt-4o": score_a, "gemini-2.5-flash": score_b},
-            "individual_reasoning": {"gpt-4o": reasoning_a, "gemini-2.5-flash": reasoning_b},
+            "individual_scores": {"gpt-4o": score_a, "gemini-2.5-flash-lite": score_b},
+            "individual_reasoning": {"gpt-4o": reasoning_a, "gemini-2.5-flash-lite": reasoning_b},
             "conflict": diff > 1
         }
 
